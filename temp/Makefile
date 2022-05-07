@@ -17,8 +17,6 @@ TESTS= test00 test01 test02 test03 test04 test05 test06 test07 test08 \
 LIBS = -l452phase3 -l452phase2 -l452phase1 -lusloss \
        -l452phase1 -l452phase2 -l452phase3 -lphase4 
 
-all: test00 test01 test02 test03 test04 test05 test06 test07 test08 \
-       test09 test10 test11 test12
 
 $(TARGET):	$(COBJS)
 		$(AR) -r $@ $(COBJS) 
