@@ -21,11 +21,13 @@
 
 #include <usyscall.h>
 
+#include <string.h>
+
 #include <provided_prototypes.h>
 
 #include "driver.h"
 
-#include <proc4structs.h>
+#include "proc4structs.h"
 
 #include <libuser.h>
 
@@ -47,7 +49,7 @@ void diskSize(sysargs * );
 void termRead(sysargs * );
 void termWrite(sysargs * );
 
-int sleepReal(int);
+int sleepReal(int seconds);
 int diskSizeReal(int, int * , int * , int * );
 int diskWriteReal(int, int, int, int, void * );
 int diskReadReal(int, int, int, int, void * );
@@ -72,10 +74,9 @@ procPtr heapRemove(heap * );
 /* Globals */
 procStruct ProcTable[MAXPROC];
 heap sleepHeap;
-int diskIsZapped; 
-diskQueue diskQs[DISK_UNITS]; 
+int diskIsZapped;
+diskQueue diskQs[DISK_UNITS];
 int diskPids[DISK_UNITS]; // pids for disk drivers
-
 
 int charRecBox[TERM_UNITS]; // mailbox to receive char
 int charSendBox[TERM_UNITS]; // mailbox to send char
@@ -84,7 +85,7 @@ int lineWriteBox[TERM_UNITS]; // mailbox to write line
 int pidBox[TERM_UNITS]; // mailbox to send pids to
 int termInt[TERM_UNITS]; // interrupt for term (control writing)
 
-int termProcTable[TERM_UNITS][3]; 
+int termProcTable[TERM_UNITS][3];
 
 void
 start3(void) {
@@ -245,10 +246,9 @@ start3(void) {
     quit(0);
 
 }
- /*-----------------------start3-----------------------*/
+/*-----------------------start3-----------------------*/
 
-
- /*-----------------------ClockDriver-----------------------*/
+/*-----------------------ClockDriver-----------------------*/
 static int
 ClockDriver(char * arg) {
     int result;
@@ -278,9 +278,9 @@ ClockDriver(char * arg) {
     }
     return 0;
 }
- /*-----------------------ClockDriver-----------------------*/
+/*-----------------------ClockDriver-----------------------*/
 
- /*-----------------------sleep-----------------------*/
+/*-----------------------sleep-----------------------*/ // todo fix sleep :/
 void sleep(sysargs * args) {
     check_kernel_mode("sleep()");
     int seconds = (long) args -> arg1;
@@ -290,10 +290,9 @@ void sleep(sysargs * args) {
     args -> arg4 = (void * )((long) retval);
     set_user_mode();
 }
- /*-----------------------sleep-----------------------*/
+/*-----------------------sleep-----------------------*/
 
-
- /*-----------------------sleepReal-----------------------*/
+/*-----------------------sleepReal-----------------------*/
 int sleepReal(int seconds) {
     check_kernel_mode("sleepReal()");
 
@@ -304,7 +303,6 @@ int sleepReal(int seconds) {
         return -1;
     }
 
-    // init/get the process
     if (ProcTable[getpid() % MAXPROC].pid == -1) {
         initProc(getpid());
     }
@@ -315,18 +313,15 @@ int sleepReal(int seconds) {
     if (debug4)
         console("sleepReal: set wake time for process %d to %d, adding to heap...\n", proc -> pid, proc -> wakeTime);
 
-    heapAdd( & sleepHeap, proc); // add to sleep heap
-    //if (debug4) 
-    //  console("sleepReal: Process %d going to sleep until %d\n", proc->pid, proc->wakeTime);
+    heapAdd( & sleepHeap, proc);
+    // put to sleep by blocking 
     semp_real(proc -> blockSem); // block the process
-    //if (debug4) 
-    //  console("sleepReal: Process %d woke up, time is %d\n", proc->pid, USLOSS_Clock());
+
     return 0;
 }
- /*-----------------------sleepReal-----------------------*/
+/*-----------------------sleepReal-----------------------*/
 
-
- /*-----------------------TermDriver-----------------------*/
+/*-----------------------TermDriver-----------------------*/
 static int
 TermDriver(char * arg) {
     int result;
@@ -366,10 +361,9 @@ TermDriver(char * arg) {
 
     return 0;
 }
- /*-----------------------TermDriver-----------------------*/
+/*-----------------------TermDriver-----------------------*/
 
-
- /*-----------------------TermReader-----------------------*/
+/*-----------------------TermReader-----------------------*/
 static int
 TermReader(char * arg) {
     int unit = atoi((char * ) arg); // Unit is passed as arg.
@@ -412,9 +406,9 @@ TermReader(char * arg) {
     }
     return 0;
 }
- /*-----------------------TermReader-----------------------*/
+/*-----------------------TermReader-----------------------*/
 
- /*-----------------------termRead-----------------------*/
+/*-----------------------termRead-----------------------*/
 void termRead(sysargs * args) {
     if (debug4)
         console("termRead\n");
@@ -439,9 +433,9 @@ void termRead(sysargs * args) {
         console("termRead (unit %d): retval %d \n", unit, retval);
 
 }
- /*-----------------------termRead-----------------------*/
+/*-----------------------termRead-----------------------*/
 
- /*-----------------------termReadReal-----------------------*/
+/*-----------------------termReadReal-----------------------*/
 int termReadReal(int unit, int size, char * buffer) {
     if (debug4)
         console("termReadReal\n");
@@ -484,9 +478,9 @@ int termReadReal(int unit, int size, char * buffer) {
 
     return retval;
 }
- /*-----------------------termReadReal-----------------------*/
+/*-----------------------termReadReal-----------------------*/
 
- /*-----------------------TermWriter-----------------------*/
+/*-----------------------TermWriter-----------------------*/
 static int TermWriter(char * arg) {
     int unit = atoi((char * ) arg); // Unit is passed as arg.
     int size;
@@ -502,23 +496,19 @@ static int TermWriter(char * arg) {
     semv_real(running);
 
     while (!is_zapped()) {
-        size = MboxReceive(lineWriteBox[unit], line, MAXLINE); // get line and size
-        //console("TermWriter: unit %d, size %d\n", unit, size);	
+        size = MboxReceive(lineWriteBox[unit], line, MAXLINE);
 
         if (is_zapped()) {
-            //console("TermWriter: break\n");
             break;
         }
 
         next = 0;
         while (next < size) {
             MboxReceive(charSendBox[unit], & status, sizeof(int));
-            //console("TermWriter: unit %d, status %d\n", unit, status);
 
             // xmit the character
             int x = TERM_STAT_XMIT(status);
             if (x == DEV_READY) {
-                //console("TermWriter: %c string %d unit\n", line[next], unit);
 
                 ctrl = 0;
                 //ctrl = TERM_CTRL_RECV_INT(ctrl);
@@ -548,14 +538,13 @@ static int TermWriter(char * arg) {
         int pid;
         MboxReceive(pidBox[unit], & pid, sizeof(int));
         semv_real(ProcTable[pid % MAXPROC].blockSem);
-        //console("TermWriter: pid %d unblocked\n", pid);	           
     }
 
     return 0;
 }
- /*-----------------------TermWriter-----------------------*/
+/*-----------------------TermWriter-----------------------*/
 
- /*-----------------------termWrite-----------------------*/
+/*-----------------------termWrite-----------------------*/
 void termWrite(sysargs * args) {
     if (debug4)
         console("termWrite\n");
@@ -576,9 +565,9 @@ void termWrite(sysargs * args) {
     }
     set_user_mode();
 }
- /*-----------------------termWrite-----------------------*/
+/*-----------------------termWrite-----------------------*/
 
- /*-----------------------termWriteReal-----------------------*/
+/*-----------------------termWriteReal-----------------------*/
 int termWriteReal(int unit, int size, char * text) {
     if (debug4)
         console("termWriteReal\n");
@@ -589,20 +578,16 @@ int termWriteReal(int unit, int size, char * text) {
     }
 
     int pid = getpid();
-    //console("termWriteReal: 574 pid %d\n", pid);	
     MboxSend(pidBox[unit], & pid, sizeof(int));
-    //console("termWriteReal: 576 size %d\n", size);
     MboxSend(lineWriteBox[unit], text, size);
-    //console("termWriteReal: pid %d blocked\n", pid);	
     semp_real(ProcTable[pid % MAXPROC].blockSem);
-    //console("termWriteReal: 580 semp_real return\n ");    
     return size;
 }
- /*-----------------------termWriteReal-----------------------*/
+/*-----------------------termWriteReal-----------------------*/
 
- /*-----------------------DiskDriver-----------------------*/
+/*-----------------------DiskDriver-----------------------*/
 static int DiskDriver(char * arg) {
-    int unit = atoi((char * ) arg); // Unit is passed as arg.
+    int unit = atoi((char * ) arg); // grab args for unit
     int result;
     int status;
 
@@ -615,13 +600,13 @@ static int DiskDriver(char * arg) {
         console("DiskDriver: unit %d started, pid = %d\n", unit, me -> pid);
     }
 
-    // Let the parent know we are running and enable interrupts.
+    // indicate we are running and enable itnerruptus
     semv_real(running);
     psr_set(psr_get() | PSR_CURRENT_INT);
 
     // Infinite loop until we are zap'd
     while (!is_zapped()) {
-        // block on sem until we get request
+        // block on sem 
         semp_real(me -> blockSem);
         if (debug4) {
             console("DiskDriver: unit %d unblocked, zapped = %d, queue size = %d\n", unit, is_zapped(), diskQs[unit].size);
@@ -646,10 +631,10 @@ static int DiskDriver(char * arg) {
 
                 result = waitdevice(DISK_DEV, unit, & status);
                 if (result != 0) {
-                     if (debug4) {
-                         console("DiskDriver: results exiting\n");
-                     }
-                    //console("exiting deskdriver 1\n");
+                    if (debug4) {
+                        console("DiskDriver: results exiting\n");
+                    }
+
                     return 0;
                 }
             } else { // handle read/write requests
@@ -665,7 +650,6 @@ static int DiskDriver(char * arg) {
                     // wait for result
                     result = waitdevice(DISK_DEV, unit, & status);
                     if (result != 0) {
-                        //console("exiting diskdriver 2\n");
                         return 0;
                     }
 
@@ -683,7 +667,7 @@ static int DiskDriver(char * arg) {
 
                         result = waitdevice(DISK_DEV, unit, & status);
                         if (result != 0) {
-                            //console("exiting diskdriver 3\n");
+
                             return 0;
                         }
 
@@ -710,13 +694,11 @@ static int DiskDriver(char * arg) {
 
     }
 
-    //semv_real(running); // unblock parent
-    //console("exiting diskDriver\n");
     return 0;
 }
- /*-----------------------DiskDriver-----------------------*/
+/*-----------------------DiskDriver-----------------------*/
 
- /*-----------------------diskRead-----------------------*/
+/*-----------------------diskRead-----------------------*/
 void diskRead(sysargs * args) {
     check_kernel_mode("diskRead()");
 
@@ -736,9 +718,9 @@ void diskRead(sysargs * args) {
     }
     set_user_mode();
 }
- /*-----------------------diskRead-----------------------*/
+/*-----------------------diskRead-----------------------*/
 
- /*-----------------------diskWrite-----------------------*/
+/*-----------------------diskWrite-----------------------*/
 void diskWrite(sysargs * args) {
     check_kernel_mode("diskWrite()");
 
@@ -758,24 +740,23 @@ void diskWrite(sysargs * args) {
     }
     set_user_mode();
 }
- /*-----------------------diskWrite-----------------------*/
+/*-----------------------diskWrite-----------------------*/
 
-
- /*-----------------------diskWriteReal-----------------------*/
+/*-----------------------diskWriteReal-----------------------*/
 int diskWriteReal(int unit, int track, int first, int sectors, void * buffer) {
     check_kernel_mode("diskWriteReal()");
     return diskReadOrWriteReal(unit, track, first, sectors, buffer, 1);
 }
- /*-----------------------diskWriteReal-----------------------*/
+/*-----------------------diskWriteReal-----------------------*/
 
- /*-----------------------diskReadReal-----------------------*/
+/*-----------------------diskReadReal-----------------------*/
 int diskReadReal(int unit, int track, int first, int sectors, void * buffer) {
     check_kernel_mode("diskWriteReal()");
     return diskReadOrWriteReal(unit, track, first, sectors, buffer, 0);
 }
- /*-----------------------diskReadReal-----------------------*/
+/*-----------------------diskReadReal-----------------------*/
 
- /*-----------------------diskReadOrWriteReal-----------------------*/
+/*-----------------------diskReadOrWriteReal-----------------------*/
 int diskReadOrWriteReal(int unit, int track, int first, int sectors, void * buffer, int write) {
     if (debug4)
         console("diskReadOrWriteReal: called with unit: %d, track: %d, first: %d, sectors: %d, write: %d\n", unit, track, first, sectors, write);
@@ -784,9 +765,9 @@ int diskReadOrWriteReal(int unit, int track, int first, int sectors, void * buff
     if (unit < 0 || unit > 1 || track < 0 || track > ProcTable[diskPids[unit]].diskTrack ||
         first < 0 || first > DISK_TRACK_SIZE || buffer == NULL ||
         (first + sectors) / DISK_TRACK_SIZE + track > ProcTable[diskPids[unit]].diskTrack) {
-            if (debug4){
-                console("diskReadorWriteReal: illegal args return -1");
-            }
+        if (debug4) {
+            console("diskReadorWriteReal: illegal args return -1");
+        }
         return -1;
     }
 
@@ -819,9 +800,9 @@ int diskReadOrWriteReal(int unit, int track, int first, int sectors, void * buff
 
     return result;
 }
- /*-----------------------diskReadOrWriteReal-----------------------*/
+/*-----------------------diskReadOrWriteReal-----------------------*/
 
- /*-----------------------diskSize-----------------------*/
+/*-----------------------diskSize-----------------------*/
 void diskSize(sysargs * args) {
     check_kernel_mode("diskSize()");
     int unit = (long) args -> arg1;
@@ -833,10 +814,9 @@ void diskSize(sysargs * args) {
     args -> arg4 = (void * )((long) retval);
     set_user_mode();
 }
- /*-----------------------diskSize-----------------------*/
+/*-----------------------diskSize-----------------------*/
 
-
- /*-----------------------diskSizeReal-----------------------*/
+/*-----------------------diskSizeReal-----------------------*/
 int diskSizeReal(int unit, int * sector, int * track, int * disk) {
     check_kernel_mode("diskSizeReal()");
 
@@ -873,8 +853,7 @@ int diskSizeReal(int unit, int * sector, int * track, int * disk) {
     * disk = driver -> diskTrack;
     return 0;
 }
- /*-----------------------diskSizeReal-----------------------*/
-
+/*-----------------------diskSizeReal-----------------------*/
 
 /*-----------------------check_kernel_mode-----------------------*/
 void check_kernel_mode(char * name) {
@@ -885,7 +864,6 @@ void check_kernel_mode(char * name) {
     }
 }
 /*-----------------------check_kernel_mode-----------------------*/
-
 
 /*-----------------------set user mode-----------------------*/
 void set_user_mode() {
@@ -910,7 +888,7 @@ void initProc(int pid) {
 }
 /*-----------------------initProc-----------------------*/
 
-/* empties proc struct */
+/*-----------------------emptyProc-----------------------*/
 void emptyProc(int pid) {
     check_kernel_mode("emptyProc()");
 
@@ -923,20 +901,23 @@ void emptyProc(int pid) {
     ProcTable[i].nextDiskPtr = NULL;
     ProcTable[i].prevDiskPtr = NULL;
 }
+/*-----------------------emptyProc-----------------------*/
 
 /* ------------------------------------------------------------------------
   Functions for the dskQueue and heap.
    ----------------------------------------------------------------------- */
 
-/* Initialize the given diskQueue */
+/*-----------------------initDiskQueue-----------------------*/
 void initDiskQueue(diskQueue * q) {
     q -> head = NULL;
     q -> tail = NULL;
     q -> curr = NULL;
     q -> size = 0;
 }
+/*-----------------------initDiskQueue-----------------------*/
 
 /* Adds the proc pointer to the disk queue in sorted order */
+/*-----------------------addDiskQ-----------------------*/
 void addDiskQ(diskQueue * q, procPtr p) {
     if (debug4)
         console("addDiskQ: adding pid %d, track %d to queue\n", p -> pid, p -> diskTrack);
@@ -982,8 +963,9 @@ procPtr peekDiskQ(diskQueue * q) {
 
     return q -> curr;
 }
+/*-----------------------addDiskQ-----------------------*/
 
-/* Returns and removes the next proc on the disk queue */
+/*-----------------------removeDiskQ-----------------------*/
 procPtr removeDiskQ(diskQueue * q) {
     if (q -> size == 0)
         return NULL;
@@ -1022,8 +1004,10 @@ procPtr removeDiskQ(diskQueue * q) {
 
     return temp;
 }
+/*-----------------------removeDiskQ-----------------------*/
 
-/* Setup heap, implementation based on https://gist.github.com/aatishnn/8265656 */
+/*-----------------------https://gist.github.com/aatishnn/8265656-----------------------*/
+/*-----------------------initHeap-----------------------*/
 void initHeap(heap * h) {
     h -> size = 0;
 }
@@ -1044,13 +1028,15 @@ void heapAdd(heap * h, procPtr p) {
     if (debug4)
         console("heapAdd: Added proc %d to heap at index %d, size = %d\n", p -> pid, i, h -> size);
 }
+/*-----------------------initHeap-----------------------*/
 
-/* Return min process on heap */
+/*-----------------------heapPeek-----------------------*/
 procPtr heapPeek(heap * h) {
     return h -> procs[0];
 }
+/*-----------------------heapPeek-----------------------*/
 
-/* Remove earlist waking process form the heap */
+/*-----------------------heapRemove-----------------------*/
 procPtr heapRemove(heap * h) {
     if (h -> size == 0)
         return NULL;
@@ -1085,7 +1071,9 @@ procPtr heapRemove(heap * h) {
         console("heapRemove: Called, returning pid %d, size = %d\n", removed -> pid, h -> size);
     return removed;
 }
+/*-----------------------heapRemove-----------------------*/
 
+/*-----------------------getTime-----------------------*/
 int getTime() {
     int result, unit = 0, status;
 
@@ -1098,3 +1086,4 @@ int getTime() {
 
     return status;
 }
+/*-----------------------getTime-----------------------*/
