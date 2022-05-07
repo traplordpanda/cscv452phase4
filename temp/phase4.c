@@ -26,7 +26,7 @@ void diskSize(sysargs *);
 void termRead(sysargs *);
 void termWrite(sysargs *);
 
-void check_kernel_mode(char * proc);
+void check_kernel_mode(char * name);
 void sleep(sysargs * args);
 
 int debugflag4 = 0;
@@ -171,7 +171,7 @@ DiskDriver(char *arg)
 }
 
 
-void check_kernel_mode(char * proc) {
+void check_kernel_mode(char * name) {
     if ((PSR_CURRENT_MODE & psr_get()) == 0) {
         console("check_kernel_mode(): called while in user mode by process %s. Halting...\n", proc);
         halt(1);
